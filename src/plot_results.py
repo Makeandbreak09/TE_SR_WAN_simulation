@@ -296,11 +296,13 @@ def prepare_data_and_plot(df, title, plot_type, plotting_value):
     print("Plot files:")
     if plot_type.startswith("all_topologies"):
         # PLOT FIGURE 3
-        df1 = df[df["topology_name"] < "JanetLense"]
-        df2 = df[df["topology_name"] >= "JanetLense"]
-        df2 = df2[df2["topology_name"] < "Pdh"]
-        df3 = df[df["topology_name"] >= "Pdh"]
-        for i, df_i in enumerate([df1, df2, df3]):
+        df1 = df[df["topology_name"] < "Germany50"]
+        df2 = df[df["topology_name"] >= "Germany50"]
+        df2 = df2[df2["topology_name"] < "Karen"]
+        df3 = df[df["topology_name"] >= "Karen"]
+        df3 = df3[df3["topology_name"] < "Norway"]
+        df4 = df[df["topology_name"] >= "Norway"]
+        for i, df_i in enumerate([df1, df2, df3, df4]):
             width = 6 + 1.5 * df_i['topology_name'].nunique()
 
             y_lim_top = 8.5
