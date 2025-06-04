@@ -285,7 +285,7 @@ def prepare_data_and_plot(df, title, plot_type, plotting_value):
         print()
 
     # print mean values to console
-    print("Mean objective over all topologies:")
+    print(f"Mean {plotting_value} over all topologies:")
     for algo in df['algorithm_complete'].unique():
         df_x = df[df["algorithm_complete"] == algo]
         mean = np.mean(df_x[plotting_value].values.mean())
