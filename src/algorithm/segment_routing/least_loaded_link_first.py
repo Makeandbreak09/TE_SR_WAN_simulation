@@ -125,17 +125,21 @@ class LeastLoadedLinkFirst(GenericSR):
         # print(f"predecessor: {predecessor}")
         return path
 
-    def __least_loaded_link_first(self):
+    def __least_loaded_link_first(self, routes):
         """ main procedure """
         
         # sorts the demand list decending
         sorted_demands = sorted(self.__demands.items(), key=lambda item: -item[1][2])
 
-        # list for storing all the routes for the demands
-        routes = list()
-
         # print(f"graph: {self.__g}")
         for idx, [s, t, demand] in sorted_demands:
+            if idx in routes.keys():
+                # Removes the demand from the path
+                # print(f"best_path: {best_path}")
+                for i in range(len(routes[idx])-1):
+                    self.__flow_sum[routes[idx][i], routes[idx][i+1]] -= demand
+                del routes[idx]
+
             # print(f"s: {s}, t: {t}, demand: {demand}")
 
             # gets a good path with minimal link utilization with dijkstra
@@ -150,19 +154,43 @@ class LeastLoadedLinkFirst(GenericSR):
             for i in range(len(best_path)-1):
                 self.__flow_sum[best_path[i], best_path[i+1]] += demand
                 
-            routes.append(best_path)
+            routes[idx] = best_path
+
+    def __repeat_least_loaded_link_first(self):
+        """ repeats main procedure """
+        # list for storing all the routes for the demands
+        routes = {}
+        self.__least_loaded_link_first(routes)
+        utilization = {(i, j): self.__flow_sum[i, j] / self.__capacities[i, j] for i, j in self.__links}
+        for i in range(10):
+            old_objective_mlu = max(utilization.values())
+            old_routes = len(routes)
+            self.__least_loaded_link_first(routes)
+
+            utilization = {(i, j): self.__flow_sum[i, j] / self.__capacities[i, j] for i, j in self.__links}
+            new_objective_mlu = max(utilization.values())
+            new_routes = len(routes)
+            if old_routes != new_routes:
+                # There was an Error with the path
+                print(f"Somehow the number of routes changed after an iteration.")
+                raise Exception(f"Somehow the number of routes changed after an iteration: old_routes={old_routes}, new_routes={new_routes}")
+            if new_objective_mlu >= old_objective_mlu:
+                break
+        return routes
+
 
     def solve(self) -> dict:
         """ compute solution """
 
         self.__start_time = t_start = time.time()  # sys wide time
         pt_start = time.process_time()  # count process time (e.g. sleep excluded and count per core)
-        self.__least_loaded_link_first()
+
+        routes = self.__repeat_least_loaded_link_first()
+
         pt_duration = time.process_time() - pt_start
         t_duration = time.time() - t_start
 
         utilization = {(i, j): self.__flow_sum[i, j] / self.__capacities[i, j] for i, j in self.__links}
-        avg_util = np.mean(list(utilization.values()))
 
         solution = {
             "objective_mlu": max(utilization.values()),

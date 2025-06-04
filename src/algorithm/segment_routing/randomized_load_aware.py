@@ -38,7 +38,7 @@ class RandomizedLoadAwarePathSelection(GenericSR):
         return capacity_dict
 
     def __build_graph(self):
-        G = nx.DiGraph()
+        G = nx.Graph()
         for (u, v), c in self.__capacities.items():
             G.add_edge(u, v, capacity=c, load=0, weight=int(self.__weights.get((u, v), 1)))
         return G
@@ -118,6 +118,13 @@ class RandomizedLoadAwarePathSelection(GenericSR):
                 if score < best_score:
                     best_score = score
                     best_path = path
+
+            # print(candidates)
+
+            if(best_path is None):
+                # There was an Error with the path
+                print(f"Could not find a Path for this demand: s={s}, t={t}, demand={d}")
+                raise Exception(f"Could not find a Path for this demand: s={s}, t={t}, demand={d}")
 
             if best_path:
                 for u, v in zip(best_path[:-1], best_path[1:]):
