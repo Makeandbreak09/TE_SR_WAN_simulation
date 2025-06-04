@@ -292,7 +292,7 @@ class AplWaypoints(GenericSR):
         best_objective = self.__calculate_objective(best_w_apl, best_mlu)
         
         #For updating the objective properly
-        original_objective = best_objective_apl
+        original_objective = best_objective
         
         #Sort demands 
         original_indices = list(range(len(self.__demands)))
@@ -315,7 +315,7 @@ class AplWaypoints(GenericSR):
                 objective = self.__calculate_objective(w_apl, mlu)
                 
                 if objective < best_objective:
-                    best_objective_apl = objective_apl
+                    best_objective = objective
                     best_w_apl = w_apl
                     best_waypoint = waypoint
                     best_util_array = util_array
