@@ -43,9 +43,10 @@ class RandomizedLoadAwarePathSelection(GenericSR):
             G.add_edge(u, v, capacity=c, load=0, weight=int(self.__weights.get((u, v), 1)))
         return G
 
-    def __k_shortest_paths(self, G, s, t, k):
+    def __k_shortest_paths(self, G, s, t, k, oversample = 10):
         try:
-            return list(islice(nx.shortest_simple_paths(G, s, t, weight="weight"), k))
+            all_paths = list(islice(nx.shortest_simple_paths(G, s, t, weight="weight"), k * oversample))
+            return random.sample(all_paths, min(k, len(all_paths)))
         except (nx.NetworkXNoPath, nx.NodeNotFound):
             return []
 
