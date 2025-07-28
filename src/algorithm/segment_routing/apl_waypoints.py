@@ -15,6 +15,7 @@ class AplWaypoints(GenericSR):
     
     def __init__(self, nodes: list, links: list, demands: list, weights: dict = None, waypoints: dict = None, **kwargs):
         super().__init__(nodes, links, demands, weights, waypoints)
+        self.__lambda_value  = kwargs.get("lambda_value", 0.3) 
         self.__links = links #List of links with capacities {(u,v,c)...}
         self.__demands = demands #List of demands with src, dst, d
         self.__n = len(nodes)
@@ -92,8 +93,18 @@ class AplWaypoints(GenericSR):
     def __update_flows(self, flow_array, s, t, d, waypoint):
         if s == t or waypoint is None or waypoint == s or waypoint == t:
             return flow_array
-        old_path = self.__path.get((s,t), [])
-        new_path = self.__path.get((s,waypoint), [])[:-1] + self.__path.get((waypoint, t), [])
+        old_path = self.__path.get((s, t), [])
+        path1 = self.__path.get((s, waypoint), [])
+        path2 = self.__path.get((waypoint, t), [])
+
+        # Check before trying to concatenate
+        if path1 is None or path2 is None or len(path1) == 0 or len(path2) == 0:
+            print(f" Skipping {s}->{t} via {waypoint} (missing path)")
+            return flow_array
+
+        new_path = path1[:-1] + path2
+        print(f" Testing {s}->{t} via {waypoint} | New path: {new_path}")
+
         
         if len(new_path) < 2:
             return flow_array
@@ -108,6 +119,7 @@ class AplWaypoints(GenericSR):
         for u,v in zip(new_path[:-1], new_path[1:]):
             l_idx = self.__link_index_map[(u,v)]
             if l_idx is not None:
+                
                 flow_array[l_idx] += d
         return flow_array
     
@@ -117,6 +129,10 @@ class AplWaypoints(GenericSR):
     '''
     def __calculate_utilization(self, flow_array):
         util_array = flow_array / self.__capacities
+        for (u, v, _) in self.__links:
+            idx = self.__link_index_map[(u, v)]
+            
+
         mlu = np.max(util_array)
         return util_array, mlu
     
@@ -126,9 +142,9 @@ class AplWaypoints(GenericSR):
         For lambda > 0.5 --> w_apl is weighted more heavily than mlu in respect to how close lambda is to 1 (1 for only w_apl)
         For lambda < 0.5 --> mlu is weighted more heavily than w_apl in respect to how close lambda is to 0 (0 for only mlu)
     '''
-    def __calculate_objective(self, w_apl, mlu, lmbd=0.3):
+    def __calculate_objective(self, w_apl, mlu):
         ''' '''
-        return (lmbd * w_apl) + (1 - lmbd) * mlu
+        return (self.__lambda_value * w_apl) + (1 - self.__lambda_value) * mlu
     
     '''
         Initializes BFS to calculate all relevant paths and distances, a relevant path being either from s to t for all demands as well as from s to waypoint and waypoint to t for all demands and all waypoints
@@ -211,7 +227,7 @@ class AplWaypoints(GenericSR):
         
         #demand volume is a dict with node:volume
         #Convert to np.arrays sort them and extract the top_k_demand_volume indices
-        volume_values = np.array(list(demand_volume.values()))
+        volume_values = demand_volume  
         
         #Compute degree
         degree_score = [self.__graph.degree(v) for v in range(self.__n)]
@@ -248,6 +264,50 @@ class AplWaypoints(GenericSR):
         return total__weighted_path_length / total_demand_weight if total_demand_weight > 0 else 0
     
     '''
+        Calculates the complete weighted APL considering all demands with their current paths and one test demand using a waypoint
+    '''
+    def __calculate_full_weighted_apl_with_waypoint(self, test_s, test_t, test_d, test_waypoint, current_waypoints):
+        total_weighted_path_length = 0
+        total_demand_weight = 0
+        
+        for i, (s, t, d) in enumerate(self.__demands):
+            if s == t:
+                continue
+                
+            if s == test_s and t == test_t:
+                if test_waypoint is not None:
+                    s_to_wp = self.__dist.get((s, test_waypoint))
+                    wp_to_t = self.__dist.get((test_waypoint, t))
+                    if s_to_wp is not None and wp_to_t is not None:
+                        path_length = s_to_wp + wp_to_t
+                    else:
+                        continue
+                else:
+                    path_length = self.__dist.get((s, t))
+                    if path_length is None:
+                        continue
+            else:
+                if i in current_waypoints and len(current_waypoints[i]) > 1:
+                    wp = current_waypoints[i][0][1]
+                    s_to_wp = self.__dist.get((s, wp))
+                    wp_to_t = self.__dist.get((wp, t))
+                    if s_to_wp is not None and wp_to_t is not None:
+                        path_length = s_to_wp + wp_to_t
+                    else:
+                        path_length = self.__dist.get((s, t))
+                        if path_length is None:
+                            continue
+                else:
+                    path_length = self.__dist.get((s, t))
+                    if path_length is None:
+                        continue
+            
+            total_weighted_path_length += path_length * d
+            total_demand_weight += d
+        
+        return total_weighted_path_length / total_demand_weight if total_demand_weight > 0 else 0
+    
+    '''
         Updates the weighted apl by the change which occurs when we add a waypoint to a demand
         The change is defined by delta see formula below
         e.g old_apl + delta is the new apl
@@ -282,17 +342,14 @@ class AplWaypoints(GenericSR):
     def __apl_optimization(self):
         #get candidate set, go over all demands(sorted) and optimize for each demand the waypoints 
         #Candidate set is initialized in __init__
-        
+        print("Candidates:", self.__candidate_waypoints)
         #Get wapl and mlu 
         self.__calculate_flows()
         best_util_array, best_mlu = self.__calculate_utilization(self.__flows)
         best_w_apl = self.__calculate_weighted_apl()
         
-        #Combine for objective
-        best_objective = self.__calculate_objective(best_w_apl, best_mlu)
         
-        #For updating the objective properly
-        original_objective = best_objective
+        
         
         #Sort demands 
         original_indices = list(range(len(self.__demands)))
@@ -303,17 +360,27 @@ class AplWaypoints(GenericSR):
         for d_idx in sorted_indices:
             best_waypoint = None
             s,t,d = self.__demands[d_idx]
+            best_objective = float("inf")
+            
             for waypoint in self.__candidate_waypoints:
                 if waypoint == s or waypoint == t:
                     continue
                 #Update our weighted apl
-                w_apl = self.__update_weighted_apl(s, t, d, waypoint, original_objective)
+                w_apl = self.__calculate_full_weighted_apl_with_waypoint(s, t, d, waypoint, waypoints)
                 
                 #update the flow and the mlu aswell as the util_array
-                flow_array = self.__update_flows(self.__flows, s, t, d, waypoint)
-                util_array, mlu = self.__calculate_utilization(flow_array)
+                flow_array = np.zeros_like(self.__flows)    ## new change 
+                flow_array = self.__update_flows(self.__flows.copy(), s, t, d, waypoint)
+                util_array, _ = self.__calculate_utilization(flow_array)
+                path1 = self.__path.get((s, waypoint), [])
+                path2 = self.__path.get((waypoint, t), [])
+                if not path1 or not path2:
+                    continue
+                full_path = path1[:-1] + path2
+                mlu = max(util_array[self.__link_index_map[(u, v)]]
+                          for u, v in zip(full_path[:-1], full_path[1:]))
                 objective = self.__calculate_objective(w_apl, mlu)
-                
+                print(f" {s}->{t} via {waypoint} | APL: {w_apl:.3f} | MLU: {mlu:.3f} | OBJ: {objective:.3f}")
                 if objective < best_objective:
                     best_objective = objective
                     best_w_apl = w_apl
@@ -325,10 +392,42 @@ class AplWaypoints(GenericSR):
                 waypoints[d_idx] = [(s, best_waypoint), (best_waypoint, t)]
             else:
                 waypoints[d_idx] = [(s,t)]
-                
-        loads =  self.__calculate_loads(best_util_array)
         
-        return loads, waypoints, best_w_apl
+        # === Recompute global flows using all selected paths ===
+        self.__flows.fill(0.0)
+
+        for idx, segs in waypoints.items():
+            s, t, d = self.__demands[idx]
+
+            if len(segs) == 1:
+            # No waypoint: direct path
+                path = self.__path.get((s, t), [])
+            else:
+            # Path via waypoint
+                wp = segs[0][1]
+                path1 = self.__path.get((s, wp), [])
+                path2 = self.__path.get((wp, t), [])
+                if path1 is None or path2 is None or len(path1) == 0 or len(path2) == 0:
+                    print(f"Warning: missing path for {s}->{t} via {wp}")
+                    continue
+                path = path1[:-1] + path2  # concat without duplicating wp
+ 
+            for u, v in zip(path[:-1], path[1:]):
+                l_idx = self.__link_index_map.get((u, v))
+                if l_idx is not None:
+                    self.__flows[l_idx] += d
+                else:
+                    print(f"Warning: link ({u},{v}) not found in index map")
+
+        # Final utilization based on true path loads
+        final_util_array, _ = self.__calculate_utilization(self.__flows)
+        loads = self.__calculate_loads(final_util_array)
+        final_w_apl = self.__calculate_full_weighted_apl_with_waypoint(None, None, None, None, waypoints)
+        return loads, waypoints, final_w_apl
+
+        
+        
+        
                 
             
     '''
@@ -363,9 +462,5 @@ class AplWaypoints(GenericSR):
         """ returns name of algorithm """
         return f"apl_waypoints"
             
-            
-        
-        
-        
-        
-                    
+    def get_lambda(self):
+        return self.__lambda_value
